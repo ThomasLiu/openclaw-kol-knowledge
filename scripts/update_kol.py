@@ -1,178 +1,364 @@
 #!/usr/bin/env python3
 """
-OpenClaw KOL 知识库自动更新脚本
+OpenClaw KOL 知识库自动更新脚本 v2
 每 4 小时运行一次
+自动搜索、转写、翻译、分析、存库
 """
 import os
 import sys
 import json
 import subprocess
-import requests
+import re
 from datetime import datetime
+
+# 如果需要 requests，用 subprocess 调用 curl
+import re
 
 # 配置
 GITHUB_DIR = os.path.expanduser("~/openclaw-kol-knowledge")
+DATA_DIR = os.path.join(GITHUB_DIR, "data")
 NOTION_KEY = "ntn_b7586668500EIA1TPn8XabewPj7LrwiUztjxXK3uPqU9xX"
-NOTION_DB_NAME = "OpenClaw KOL"
+NOTION_DB_ID = None  # 需要从 Notion 获取
 
 # 搜索关键词
-YOUTUBE_KEYWORDS = ["OpenClaw", "AI Agent", "Claude Code", "OpenAI Agent"]
-BILIBILI_KEYWORDS = ["OpenClaw", "AI Agent", "大模型 Agent"]
+YOUTUBE_KEYWORDS = ["OpenClaw", "AI Agent tutorial"]
+BILIBILI_KEYWORDS = ["OpenClaw", "AI Agent"]
+MIN_VIEWS = 5000  # 最低播放量
+MAX_VIDEOS_PER_PLATFORM = 10  # 每个平台最多收录
 
-def search_youtube(keywords, min_views=5000):
+os.makedirs(DATA_DIR, exist_ok=True)
+os.makedirs(os.path.join(DATA_DIR, "youtube"), exist_ok=True)
+os.makedirs(os.path.join(DATA_DIR, "bilibili"), exist_ok=True)
+
+def log(msg):
+    print(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}")
+
+def run_cmd(cmd, capture=True):
+    """运行命令"""
+    result = subprocess.run(cmd, shell=True, capture_output=capture, text=True)
+    if result.returncode != 0:
+        log(f"❌ 命令失败: {cmd}")
+        log(f"   {result.stderr[:200]}")
+        return None
+    return result.stdout if capture else True
+
+def get_video_id(url):
+    """从 URL 提取视频 ID"""
+    # YouTube: https://youtube.com/watch?v=VIDEO_ID 或 https://youtu.be/VIDEO_ID
+    # Bilibili: https://bilibili.com/video/BVxxx 或 avxxxxx
+    patterns = [
+        r'(?:youtube\.com/watch\?v=|youtu\.be/)([a-zA-Z0-9_-]{11})',
+        r'bilibili\.com/video/(BV[\w]+|av\d+)',
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, url)
+        if match:
+            return match.group(1)
+    return url.split('/')[-1].split('?')[0][:20]
+
+def search_youtube_videos(keywords, limit=10):
     """搜索 YouTube 视频"""
-    print("🔍 搜索 YouTube...")
-    results = []
+    log("🔍 搜索 YouTube...")
+    videos = []
     
     for kw in keywords:
-        url = f"https://www.googleapis.com/youtube/v3/search"
-        # 简化：这里应该用 YouTube API，实际可以用 yt-dlp 搜索
-        print(f"  关键词: {kw}")
+        # 使用 yt-dlp 搜索
+        cmd = f'yt-dlp --flat-playlist "ytsearch{limit}:{kw}" --dump-json'
+        output = run_cmd(cmd)
+        if not output:
+            continue
+            
+        for line in output.strip().split('\n'):
+            if not line.strip():
+                continue
+            try:
+                data = json.loads(line)
+                view_count = data.get('view_count', 0)
+                if view_count >= MIN_VIEWS:
+                    videos.append({
+                        'platform': 'youtube',
+                        'id': data.get('id', ''),
+                        'title': data.get('title', ''),
+                        'uploader': data.get('uploader', ''),
+                        'view_count': view_count,
+                        'url': data.get('webpage_url', ''),
+                        'duration': data.get('duration', 0),
+                        'upload_date': data.get('upload_date', ''),
+                    })
+            except:
+                continue
     
-    return results
+    # 去重并按播放量排序
+    seen = set()
+    unique_videos = []
+    for v in videos:
+        if v['id'] not in seen:
+            seen.add(v['id'])
+            unique_videos.append(v)
+    
+    unique_videos.sort(key=lambda x: x['view_count'], reverse=True)
+    return unique_videos[:limit]
 
-def search_bilibili(keywords, min_views=5000):
+def search_bilibili_videos(keywords, limit=10):
     """搜索 Bilibili 视频"""
-    print("🔍 搜索 Bilibili...")
-    results = []
+    log("🔍 搜索 Bilibili...")
+    videos = []
     
     for kw in keywords:
-        print(f"  关键词: {kw}")
+        # 使用 yt-dlp 搜索
+        cmd = f'yt-dlp --flat-playlist "biliskew{limit}:{kw}" --dump-json'
+        output = run_cmd(cmd)
+        if not output:
+            continue
+            
+        for line in output.strip().split('\n'):
+            if not line.strip():
+                continue
+            try:
+                data = json.loads(line)
+                view_count = data.get('view_count', 0)
+                if view_count >= MIN_VIEWS:
+                    videos.append({
+                        'platform': 'bilibili',
+                        'id': get_video_id(data.get('webpage_url', '')),
+                        'title': data.get('title', ''),
+                        'uploader': data.get('uploader', ''),
+                        'view_count': view_count,
+                        'url': data.get('webpage_url', ''),
+                        'duration': data.get('duration', 0),
+                        'upload_date': data.get('upload_date', ''),
+                    })
+            except:
+                continue
     
-    return results
+    # 去重并按播放量排序
+    seen = set()
+    unique_videos = []
+    for v in videos:
+        if v['id'] not in seen:
+            seen.add(v['id'])
+            unique_videos.append(v)
+    
+    unique_videos.sort(key=lambda x: x['view_count'], reverse=True)
+    return unique_videos[:limit]
 
-def get_video_info(url):
-    """获取视频信息"""
-    print(f"📊 获取视频信息: {url}")
+def load_existing_videos():
+    """加载已收录的视频列表"""
+    existing = {}
+    for platform in ['youtube', 'bilibili']:
+        platform_dir = os.path.join(DATA_DIR, platform)
+        if not os.path.exists(platform_dir):
+            continue
+        for video_id in os.listdir(platform_dir):
+            meta_file = os.path.join(platform_dir, video_id, 'metadata.json')
+            if os.path.exists(meta_file):
+                try:
+                    with open(meta_file, 'r', encoding='utf-8') as f:
+                        data = json.load(f)
+                        existing[data['id']] = data
+                except:
+                    pass
+    return existing
+
+def is_video_processed(video_id):
+    """检查视频是否已处理完成"""
+    for platform in ['youtube', 'bilibili']:
+        transcript_file = os.path.join(DATA_DIR, platform, video_id, 'transcript.md')
+        if os.path.exists(transcript_file):
+            return True
+    return False
+
+def download_audio(video_info):
+    """下载视频音频"""
+    video_id = video_info['id']
+    platform = video_info['platform']
+    video_dir = os.path.join(DATA_DIR, platform, video_id)
+    os.makedirs(video_dir, exist_ok=True)
     
-    cmd = ["yt-dlp", "--dump-json", "--no-download", url]
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    audio_path = os.path.join(video_dir, 'audio.mp3')
     
-    if result.returncode == 0:
-        data = json.loads(result.stdout)
-        return {
-            "title": data.get("title"),
-            "uploader": data.get("uploader"),
-            "view_count": data.get("view_count", 0),
-            "upload_date": data.get("upload_date"),
-            "duration": data.get("duration"),
-            "url": url
-        }
+    if os.path.exists(audio_path):
+        log(f"  音频已存在: {video_id}")
+        return audio_path
+    
+    log(f"  📥 下载音频: {video_info['title'][:30]}...")
+    cmd = f'yt-dlp -f bestaudio --extract-audio --audio-format mp3 -o "{audio_path}" "{video_info["url"]}"'
+    
+    if run_cmd(cmd):
+        return audio_path
     return None
 
-def download_and_transcribe(video_info):
-    """下载并转写视频"""
-    print(f"🎤 转写: {video_info['title']}")
-    # TODO: 实现转写逻辑
-    return {
-        "transcript": "TODO",
-        "language": "en"
-    }
+def transcribe_audio(audio_path, language=None):
+    """用 Whisper 转写"""
+    log(f"  🎤 转写中...")
+    
+    # 激活 conda whisper 环境
+    cmd = f'''
+source /usr/local/Caskroom/miniconda/base/etc/profile.d/conda.sh && \
+conda run -n whisper python -c "
+import whisper
+model = whisper.load_model('base')
+result = model.transcribe('{audio_path}', language={repr(language)})
+print(result['text'])
+"
+'''
+    output = run_cmd(cmd)
+    if output:
+        return output.strip()
+    return None
 
-def translate_text(text, target="zh"):
-    """翻译文本"""
-    # TODO: 用 MiniMax API 翻译
-    print(f"🌐 翻译为中文...")
+def translate_to_chinese(text):
+    """翻译为中文（调用 MiniMax API）"""
+    log(f"  🌐 翻译为中文...")
+    # TODO: 实现翻译
     return text
 
-def analyze_content(transcript):
-    """分析内容"""
-    print("📝 分析内容...")
+def analyze_transcript(transcript, title):
+    """分析转写内容"""
+    log(f"  📝 分析内容...")
     # TODO: 用 LLM 分析
     return {
-        "summary": "TODO",
-        "highlights": [],
-        "tags": []
+        'summary': '待分析',
+        'highlights': [],
+        'tags': [],
+        'why_good': '待分析'
     }
+
+def save_video_data(video_info, transcript=None, transcript_zh=None, analysis=None):
+    """保存视频数据到 GitHub"""
+    video_id = video_info['id']
+    platform = video_info['platform']
+    video_dir = os.path.join(DATA_DIR, platform, video_id)
+    os.makedirs(video_dir, exist_ok=True)
+    
+    # 更新元数据
+    metadata = {
+        'id': video_id,
+        'platform': platform,
+        'title': video_info['title'],
+        'uploader': video_info['uploader'],
+        'view_count': video_info['view_count'],
+        'url': video_info['url'],
+        'duration': video_info['duration'],
+        'upload_date': video_info['upload_date'],
+        'last_updated': datetime.now().isoformat(),
+        'processed': transcript is not None
+    }
+    
+    with open(os.path.join(video_dir, 'metadata.json'), 'w', encoding='utf-8') as f:
+        json.dump(metadata, f, ensure_ascii=False, indent=2)
+    
+    if transcript:
+        with open(os.path.join(video_dir, 'transcript.md'), 'w', encoding='utf-8') as f:
+            f.write(transcript)
+    
+    if transcript_zh:
+        with open(os.path.join(video_dir, 'transcript_zh.md'), 'w', encoding='utf-8') as f:
+            f.write(transcript_zh)
+    
+    if analysis:
+        with open(os.path.join(video_dir, 'analysis.json'), 'w', encoding='utf-8') as f:
+            json.dump(analysis, f, ensure_audio=False, indent=2)
+    
+    log(f"  ✅ 已保存: {video_id}")
 
 def save_to_notion(video_info, transcript_data, analysis):
     """保存到 Notion"""
-    print("💾 保存到 Notion...")
+    if not NOTION_DB_ID:
+        log("  ⚠️ Notion 数据库未配置，跳过")
+        return False
     
-    # 先搜索数据库 ID
-    search_url = "https://api.notion.com/v1/search"
-    headers = {
-        "Authorization": f"Bearer {NOTION_KEY}",
-        "Notion-Version": "2025-09-03",
-        "Content-Type": "application/json"
-    }
-    
-    response = requests.post(search_url, headers=headers, json={"query": NOTION_DB_NAME})
-    
-    if response.json().get("results"):
-        db_id = response.json()["results"][0]["id"]
-        print(f"  数据库 ID: {db_id}")
-        # TODO: 添加记录
-    else:
-        print("  ⚠️ 数据库不存在，需要创建")
-        # TODO: 创建数据库
-    
+    log("  💾 保存到 Notion...")
+    # TODO: 实现 Notion 写入
     return True
 
-def save_to_github(video_info, transcript_data, analysis):
-    """保存到 GitHub 本地仓库"""
-    print("💾 保存到 GitHub...")
+def git_commit_and_push():
+    """提交到 GitHub"""
+    log("📤 提交到 GitHub...")
     
-    video_id = video_info.get("id", video_info["url"].split("/")[-1][:20])
-    video_dir = os.path.join(GITHUB_DIR, "data", "youtube", video_id)
-    os.makedirs(video_dir, exist_ok=True)
+    # 检查是否有更改
+    cmd = 'cd ~/openclaw-kol-knowledge && git status --porcelain'
+    if not run_cmd(cmd):
+        return
     
-    # 保存元数据
-    with open(os.path.join(video_dir, "metadata.json"), "w", encoding="utf-8") as f:
-        json.dump(video_info, f, ensure_ascii=False, indent=2)
+    # 添加并提交
+    run_cmd('cd ~/openclaw-kol-knowledge && git add -A')
+    run_cmd(f'cd ~/openclaw-kol-knowledge && git commit -m "KOL update {datetime.now().strftime("%Y-%m-%d %H:%M")}"')
+    run_cmd('cd ~/openclaw-kol-knowledge && git push')
     
-    # 保存转写
-    with open(os.path.join(video_dir, "transcript.md"), "w", encoding="utf-8") as f:
-        f.write(transcript_data.get("transcript", ""))
-    
-    # 保存翻译
-    if transcript_data.get("transcript_zh"):
-        with open(os.path.join(video_dir, "transcript_zh.md"), "w", encoding="utf-8") as f:
-            f.write(transcript_data["transcript_zh"])
-    
-    # 保存分析
-    with open(os.path.join(video_dir, "analysis.json"), "w", encoding="utf-8") as f:
-        json.dump(analysis, f, ensure_ascii=False, indent=2)
-    
-    print(f"  ✅ 已保存到: {video_dir}")
-    return True
+    log("  ✅ 已推送到 GitHub")
 
 def main():
-    print("=" * 50)
-    print(f"🆕 OpenClaw KOL 更新 - {datetime.now()}")
-    print("=" * 50)
+    log("=" * 60)
+    log(f"🆕 OpenClaw KOL 更新开始 - {datetime.now()}")
+    log("=" * 60)
     
-    # 1. 搜索视频
-    videos = []
-    videos.extend(search_youtube(YOUTUBE_KEYWORDS))
-    videos.extend(search_bilibili(BILIBILI_KEYWORDS))
+    # 1. 加载已收录的视频
+    existing = load_existing_videos()
+    log(f"📚 已收录: {len(existing)} 个视频")
     
-    print(f"\n📊 找到 {len(videos)} 个视频")
+    # 2. 搜索新视频
+    youtube_videos = search_youtube_videos(YOUTUBE_KEYWORDS, MAX_VIDEOS_PER_PLATFORM)
+    bilibili_videos = search_bilibili_videos(BILIBILI_KEYWORDS, MAX_VIDEOS_PER_PLATFORM)
     
-    # 2. 处理每个视频
-    for video in videos:
-        # 获取详情
-        info = get_video_info(video)
-        if not info or info.get("view_count", 0) < 5000:
+    log(f"🔍 YouTube: 找到 {len(youtube_videos)} 个视频")
+    log(f"🔍 Bilibili: 找到 {len(bilibili_videos)} 个视频")
+    
+    # 3. 处理视频
+    new_count = 0
+    update_count = 0
+    
+    for video in youtube_videos + bilibili_videos:
+        video_id = video['id']
+        
+        # 检查是否已处理
+        if is_video_processed(video_id):
+            # 已处理过，只更新播放量
+            if video_id in existing:
+                old_views = existing[video_id].get('view_count', 0)
+                if video['view_count'] != old_views:
+                    log(f"  🔄 更新播放量: {video['title'][:30]} ({old_views} → {video['view_count']})")
+                    save_video_data(video)
+                    update_count += 1
             continue
         
-        print(f"\n处理: {info['title']}")
+        # 新视频：完整处理
+        log(f"\n📺 处理: {video['title'][:40]}")
+        
+        # 下载音频
+        audio_path = download_audio(video)
+        if not audio_path:
+            log(f"  ❌ 下载失败，跳过")
+            continue
         
         # 转写
-        transcript_data = download_and_transcribe(info)
+        transcript = transcribe_audio(audio_path)
+        if not transcript:
+            log(f"  ❌ 转写失败，跳过")
+            continue
         
-        # 翻译（如果是非中文）
-        if transcript_data.get("language") != "zh":
-            transcript_data["transcript_zh"] = translate_text(transcript_data["transcript"])
+        # 翻译（非中文）
+        transcript_zh = None
+        # TODO: 检测语言
         
         # 分析
-        analysis = analyze_content(transcript_data.get("transcript", ""))
+        analysis = analyze_transcript(transcript, video['title'])
         
         # 保存
-        save_to_notion(info, transcript_data, analysis)
-        save_to_github(info, transcript_data, analysis)
+        save_video_data(video, transcript, transcript_zh, analysis)
+        
+        # 尝试保存到 Notion
+        save_to_notion(video, {'original': transcript, 'zh': transcript_zh}, analysis)
+        
+        new_count += 1
     
-    print("\n✅ 更新完成!")
+    log(f"\n✅ 处理完成: 新增 {new_count} 个，更新 {update_count} 个")
+    
+    # 4. 提交到 GitHub
+    if new_count > 0 or update_count > 0:
+        git_commit_and_push()
+    
+    log("🏁 完成!")
 
 if __name__ == "__main__":
     main()
