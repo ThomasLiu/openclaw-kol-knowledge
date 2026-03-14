@@ -105,8 +105,8 @@ def search_bilibili_videos(keywords, limit=10):
     videos = []
     
     for kw in keywords:
-        # 使用 yt-dlp 搜索
-        cmd = f'yt-dlp --flat-playlist "biliskew{limit}:{kw}" --dump-json'
+        # 使用 yt-dlp 搜索 - Bilibili 搜索
+        cmd = f'yt-dlp --flat-playlist "ytsearch{limit}:site:bilibili.com {kw}" --dump-json'
         output = run_cmd(cmd)
         if not output:
             continue
@@ -169,23 +169,13 @@ def is_video_processed(video_id):
     return False
 
 def download_audio(video_info):
-    """下载视频音频"""
+    """下载视频音频 - 暂时跳过，等有代理再处理"""
     video_id = video_info['id']
     platform = video_info['platform']
     video_dir = os.path.join(DATA_DIR, platform, video_id)
     os.makedirs(video_dir, exist_ok=True)
     
-    audio_path = os.path.join(video_dir, 'audio.mp3')
-    
-    if os.path.exists(audio_path):
-        log(f"  音频已存在: {video_id}")
-        return audio_path
-    
-    log(f"  📥 下载音频: {video_info['title'][:30]}...")
-    cmd = f'yt-dlp -f bestaudio --extract-audio --audio-format mp3 -o "{audio_path}" "{video_info["url"]}"'
-    
-    if run_cmd(cmd):
-        return audio_path
+    log(f"  ⏭️ 跳过下载 (YouTube 被限制): {video_info['title'][:30]}...")
     return None
 
 def transcribe_audio(audio_path, language=None):
@@ -258,7 +248,7 @@ def save_video_data(video_info, transcript=None, transcript_zh=None, analysis=No
     
     if analysis:
         with open(os.path.join(video_dir, 'analysis.json'), 'w', encoding='utf-8') as f:
-            json.dump(analysis, f, ensure_audio=False, indent=2)
+            json.dump(analysis, f, ensure_ascii=False, indent=2)
     
     log(f"  ✅ 已保存: {video_id}")
 
@@ -327,15 +317,16 @@ def main():
         
         # 下载音频
         audio_path = download_audio(video)
-        if not audio_path:
-            log(f"  ❌ 下载失败，跳过")
-            continue
         
-        # 转写
-        transcript = transcribe_audio(audio_path)
-        if not transcript:
-            log(f"  ❌ 转写失败，跳过")
-            continue
+        # 即使下载失败也保存元数据
+        if True:  # 始终保存
+            # 转写
+            transcript = None
+            if audio_path:
+                transcript = transcribe_audio(audio_path)
+            
+            if not transcript:
+                log(f"  ⏭️ 跳过转写: 无音频")
         
         # 翻译（非中文）
         transcript_zh = None
