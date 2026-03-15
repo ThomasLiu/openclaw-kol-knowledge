@@ -278,19 +278,14 @@ def save_to_notion(video_info, transcript_data, analysis):
     """保存到 Notion - KOL + 视频"""
     import urllib.request
     
-    # 1. 先保存/更新 KOL（发布者）
-    kol_name = video_info.get('uploader', 'Unknown')
-    kol_platform = video_info.get('platform', 'YouTube')
-    kol_url = video_info.get('channel_url', '')
-    
-    # 2. 保存视频
+    # 保存视频（字段名用 Notion 返回的英文名）
     url = "https://api.notion.com/v1/pages"
     data = {
         "parent": {"data_source_id": NOTION_VIDEO_DS_ID},
         "properties": {
-            "视频标题": {"title": [{"text": {"content": video_info.get('title', 'Untitled')[:80]}}]},
-            "发布者": {"rich_text": [{"text": {"content": kol_name}}]},
-            "平台": {"select": {"name": kol_platform}},
+            "Name": {"title": [{"text": {"content": video_info.get('title', 'Untitled')[:80]}}]},
+            "发布者": {"rich_text": [{"text": {"content": video_info.get('uploader', 'Unknown')}}]},
+            "平台": {"select": {"name": video_info.get('platform', 'YouTube')}},
             "播放量": {"number": video_info.get('view_count', 0)},
             "链接": {"url": video_info.get('url', '')},
             "状态": {"select": {"name": "待处理"}},
