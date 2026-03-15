@@ -18,8 +18,8 @@ import re
 GITHUB_DIR = os.path.expanduser("~/openclaw-kol-knowledge")
 DATA_DIR = os.path.join(GITHUB_DIR, "data")
 NOTION_KEY = "ntn_b7586668500EIA1TPn8XabewPj7LrwiUztjxXK3uPqU9xX"
-NOTION_KOL_DB_ID = "25cfb330-33a1-4d69-9a13-c4b6f6451446"  # KOL 发布者库
-NOTION_VIDEO_DB_ID = "25014fb4-4782-48bb-8352-248ed4664486"  # 视频库
+# 视频库 data_source_id
+NOTION_VIDEO_DS_ID = "3231c433-5fd4-807b-b134-000b244dd7c5"
 
 # 搜索关键词
 YOUTUBE_KEYWORDS = ["OpenClaw", "AI Agent tutorial"]
@@ -255,32 +255,23 @@ def save_video_data(video_info, transcript=None, transcript_zh=None, analysis=No
 
 def save_to_notion(video_info, transcript_data, analysis):
     """保存到 Notion"""
-    if not NOTION_VIDEO_DB_ID:
+    if not NOTION_VIDEO_DS_ID:
         log("  ⚠️ Notion 数据库未配置，跳过")
         return False
     
     log("  💾 保存到 Notion...")
     
-    # 先检查 KOL 是否已存在，不存在则创建
-    kol_id = None
-    kol_name = video_info.get('uploader', 'Unknown')
-    kol_platform = video_info.get('platform', 'YouTube')
-    
-    # 尝试添加视频到视频库
     import urllib.request
     import urllib.error
     
+    # 构建标题（包含关键信息）
+    title = f"{video_info.get('title', 'Untitled')[:80]} | {video_info.get('uploader', 'Unknown')} | {video_info.get('view_count', 0)} views"
+    
     url = "https://api.notion.com/v1/pages"
     data = {
-        "parent": {"database_id": NOTION_VIDEO_DB_ID},
+        "parent": {"data_source_id": NOTION_VIDEO_DS_ID},
         "properties": {
-            "视频标题": {"title": [{"text": {"content": video_info.get('title', '')[:100]}}]},
-            "平台": {"select": {"name": video_info.get('platform', 'YouTube')}},
-            "播放量": {"number": video_info.get('view_count', 0)},
-            "链接": {"url": video_info.get('url', '')},
-            "状态": {"select": {"name": "待处理"}},
-            "收录日期": {"date": {"start": datetime.now().strftime('%Y-%m-%d')}},
-            "更新时间": {"date": {"start": datetime.now().isoformat()}}
+            "名称": {"title": [{"text": {"content": title}}]}
         }
     }
     
@@ -297,11 +288,11 @@ def save_to_notion(video_info, transcript_data, analysis):
     try:
         with urllib.request.urlopen(req) as response:
             result = json.loads(response.read().decode('utf-8'))
-            log(f"  ✅ 已添加到 Notion: {result.get('id', '')[:20]}...")
+            log(f"  ✅ 已添加到 Notion")
             return True
     except urllib.error.HTTPError as e:
         error_body = e.read().decode('utf-8')
-        log(f"  ❌ Notion API 错误: {e.code}")
+        log(f"  ❌ Notion API 错误: {e.code} - {error_body[:100]}")
         return False
     except Exception as e:
         log(f"  ❌ 保存失败: {str(e)[:50]}")
