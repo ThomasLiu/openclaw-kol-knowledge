@@ -10,6 +10,10 @@ import json
 import subprocess
 import re
 from datetime import datetime
+import glob
+
+# 设置环境变量解决 OpenMP 问题
+os.environ['KMP_DUPLICATE_LIB_OK'] = 'TRUE'
 
 # 如果需要 requests，用 subprocess 调用 curl
 import re
@@ -220,22 +224,28 @@ def download_audio(video_info):
         return audio_path
     return None
 
-def transcribe_audio(audio_path, language=None):
+# Whisper 转写
+def transcribe_audio(audio_path):
     """用 Whisper 转写"""
     log(f"  🎤 转写中...")
     
-    # 激活 conda whisper 环境
+    # 使用 faster-whisper
     cmd = f'''
-source /usr/local/Caskroom/miniconda/base/etc/profile.d/conda.sh && \
-conda run -n whisper python -c "
-import whisper
-model = whisper.load_model('base')
-result = model.transcribe('{audio_path}', language={repr(language)})
-print(result['text'])
+export KMP_DUPLICATE_LIB_OK=TRUE
+source /usr/local/Caskroom/miniconda/base/etc/profile.d/conda.sh && conda activate whisper && python3 -c "
+import os
+os.environ['KMP_DUPLICATE_LIB_OK'] = 'TRUE'
+from faster_whisper import WhisperModel
+model = WhisperModel('base', device='cpu', compute_type='int8')
+segments, info = model.transcribe('{audio_path}')
+text = ''
+for segment in segments:
+    text += segment.text + ' '
+print(text)
 "
 '''
     output = run_cmd(cmd)
-    if output:
+    if output and len(output) > 50:
         return output.strip()
     return None
 
