@@ -122,38 +122,35 @@ def search_bilibili_videos(keywords, limit=10):
     videos = []
     
     for kw in keywords:
-        import urllib.request
-        url = f"https://api.bilibili.com/x/web-interface/search/type?search_type=video&keyword={kw}&order=click&jsonp=jsonp"
+        # 用 curl 获取数据
+        cmd = f'''curl -s "https://api.bilibili.com/x/web-interface/search/type?search_type=video&keyword={kw}&order=click" \
+  -H "User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36" \
+  -H "Referer: https://www.bilibili.com"'''
         
+        output = run_cmd(cmd)
+        if not output:
+            continue
+            
         try:
-            req = urllib.request.Request(
-                url, 
-                headers={
-                    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
-                    'Referer': 'https://www.bilibili.com',
-                    'Accept': 'application/json'
-                }
-            )
-            with urllib.request.urlopen(req, timeout=10) as response:
-                data = json.loads(response.read().decode('utf-8'))
-                if data.get('code') == 0:
-                    for item in data.get('data', {}).get('result', [])[:limit*2]:
-                        title = item.get('title', '').replace('<em class="keyword">', '').replace('</em>', '')
-                        view_count = item.get('play', 0)
-                        
-                        if view_count >= MIN_VIEWS:
-                            videos.append({
-                                'platform': 'bilibili',
-                                'id': item.get('bvid', ''),
-                                'title': title,
-                                'uploader': item.get('author', ''),
-                                'view_count': view_count,
-                                'url': f"https://www.bilibili.com/video/{item.get('bvid', '')}",
-                                'duration': item.get('duration', 0),
-                                'upload_date': '',
-                            })
+            data = json.loads(output)
+            if data.get('code') == 0:
+                for item in data.get('data', {}).get('result', [])[:limit*2]:
+                    title = item.get('title', '').replace('<em class="keyword">', '').replace('</em>', '')
+                    view_count = item.get('play', 0)
+                    
+                    if view_count >= MIN_VIEWS:
+                        videos.append({
+                            'platform': 'bilibili',
+                            'id': item.get('bvid', ''),
+                            'title': title,
+                            'uploader': item.get('author', ''),
+                            'view_count': view_count,
+                            'url': f"https://www.bilibili.com/video/{item.get('bvid', '')}",
+                            'duration': item.get('duration', 0),
+                            'upload_date': '',
+                        })
         except Exception as e:
-            log(f"  ❌ Bilibili 搜索失败: {e}")
+            log(f"  ❌ Bilibili 解析失败: {e}")
     
     # 去重并按播放量排序
     seen = set()
