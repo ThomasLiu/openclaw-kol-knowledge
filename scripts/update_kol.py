@@ -27,12 +27,10 @@ BILIBILI_KEYWORDS = ["OpenClaw"]
 MIN_VIEWS = 5000  # 最低播放量
 MAX_VIDEOS_PER_PLATFORM = 10  # 每个平台最多收录
 
-# 过滤关键词（初级/科普内容）
+# 过滤关键词（仅过滤最基础的入门内容）
 FILTER_KEYWORDS = [
-    "零基础", "入门", "新手", "教程", "初学者", "保姆级",
-    "什么是", "科普", "介绍", "一小时", "5分钟",
-    "day1", "beginner", "tutorial", "getting started",
-    "crash course", " basics", " basics"
+    "零基础入门", "新手入门", "保姆级入门",
+    "什么是opencl", "一节课", "5分钟入门", "10分钟入门"
 ]
 
 os.makedirs(DATA_DIR, exist_ok=True)
