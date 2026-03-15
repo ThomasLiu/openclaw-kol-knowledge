@@ -18,8 +18,10 @@ import re
 GITHUB_DIR = os.path.expanduser("~/openclaw-kol-knowledge")
 DATA_DIR = os.path.join(GITHUB_DIR, "data")
 NOTION_KEY = "ntn_b7586668500EIA1TPn8XabewPj7LrwiUztjxXK3uPqU9xX"
+# KOL 发布者库 data_source_id
+NOTION_KOL_DS_ID = "8f971d73-5b46-4aa5-b710-0bf66cccfcd3"
 # 视频库 data_source_id
-NOTION_VIDEO_DS_ID = "3231c433-5fd4-807b-b134-000b244dd7c5"
+NOTION_VIDEO_DS_ID = "26a21d45-1992-4adf-b355-bba74bd1c93c"
 NOTION_API_VERSION = "2026-03-11"
 
 # 搜索关键词 - 更精准
@@ -273,29 +275,26 @@ def save_video_data(video_info, transcript=None, transcript_zh=None, analysis=No
     log(f"  ✅ 已保存: {video_id}")
 
 def save_to_notion(video_info, transcript_data, analysis):
-    """保存到 Notion"""
-    if not NOTION_VIDEO_DS_ID:
-        log("  ⚠️ Notion 数据库未配置，跳过")
-        return False
-    
-    log("  💾 保存到 Notion...")
-    
+    """保存到 Notion - KOL + 视频"""
     import urllib.request
-    import urllib.error
     
-    # 构建标题
-    title = video_info.get('title', 'Untitled')[:80]
+    # 1. 先保存/更新 KOL（发布者）
+    kol_name = video_info.get('uploader', 'Unknown')
+    kol_platform = video_info.get('platform', 'YouTube')
+    kol_url = video_info.get('channel_url', '')
     
+    # 2. 保存视频
     url = "https://api.notion.com/v1/pages"
     data = {
         "parent": {"data_source_id": NOTION_VIDEO_DS_ID},
         "properties": {
-            "名称": {"title": [{"text": {"content": title}}]},
-            "平台": {"select": {"name": video_info.get('platform', 'YouTube')}},
+            "视频标题": {"title": [{"text": {"content": video_info.get('title', 'Untitled')[:80]}}]},
+            "发布者": {"rich_text": [{"text": {"content": kol_name}}]},
+            "平台": {"select": {"name": kol_platform}},
             "播放量": {"number": video_info.get('view_count', 0)},
             "链接": {"url": video_info.get('url', '')},
-            "频道": {"rich_text": [{"text": {"content": video_info.get('uploader', '')}}]},
-            "状态": {"select": {"name": "待处理"}}
+            "状态": {"select": {"name": "待处理"}},
+            "收录日期": {"date": {"start": datetime.now().strftime('%Y-%m-%d')}}
         }
     }
     
