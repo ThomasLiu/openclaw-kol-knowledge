@@ -126,7 +126,14 @@ def search_bilibili_videos(keywords, limit=10):
         url = f"https://api.bilibili.com/x/web-interface/search/type?search_type=video&keyword={kw}&order=click&jsonp=jsonp"
         
         try:
-            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+            req = urllib.request.Request(
+                url, 
+                headers={
+                    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+                    'Referer': 'https://www.bilibili.com',
+                    'Accept': 'application/json'
+                }
+            )
             with urllib.request.urlopen(req, timeout=10) as response:
                 data = json.loads(response.read().decode('utf-8'))
                 if data.get('code') == 0:
