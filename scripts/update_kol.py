@@ -21,11 +21,19 @@ NOTION_KEY = "ntn_b7586668500EIA1TPn8XabewPj7LrwiUztjxXK3uPqU9xX"
 # 视频库 data_source_id
 NOTION_VIDEO_DS_ID = "3231c433-5fd4-807b-b134-000b244dd7c5"
 
-# 搜索关键词
-YOUTUBE_KEYWORDS = ["OpenClaw", "AI Agent tutorial"]
-BILIBILI_KEYWORDS = ["OpenClaw", "AI Agent"]
+# 搜索关键词 - 更精准
+YOUTUBE_KEYWORDS = ["OpenClaw"]
+BILIBILI_KEYWORDS = ["OpenClaw"]
 MIN_VIEWS = 5000  # 最低播放量
 MAX_VIDEOS_PER_PLATFORM = 10  # 每个平台最多收录
+
+# 过滤关键词（初级/科普内容）
+FILTER_KEYWORDS = [
+    "零基础", "入门", "新手", "教程", "初学者", "保姆级",
+    "什么是", "科普", "介绍", "一小时", "5分钟",
+    "day1", "beginner", "tutorial", "getting started",
+    "crash course", " basics", " basics"
+]
 
 os.makedirs(DATA_DIR, exist_ok=True)
 os.makedirs(os.path.join(DATA_DIR, "youtube"), exist_ok=True)
@@ -56,6 +64,14 @@ def get_video_id(url):
         if match:
             return match.group(1)
     return url.split('/')[-1].split('?')[0][:20]
+
+def should_filter_video(title):
+    """过滤初级/科普内容"""
+    title_lower = title.lower()
+    for kw in FILTER_KEYWORDS:
+        if kw.lower() in title_lower:
+            return True
+    return False
 
 def search_youtube_videos(keywords, limit=10):
     """搜索 YouTube 视频"""
@@ -265,7 +281,7 @@ def save_to_notion(video_info, transcript_data, analysis):
     import urllib.error
     
     # 构建标题（包含关键信息）
-    title = f"{video_info.get('title', 'Untitled')[:80]} | {video_info.get('uploader', 'Unknown')} | {video_info.get('view_count', 0)} views"
+    title = f"{video_info.get('title', 'Untitled')[:60]} | {video_info.get('uploader', 'Unknown')} | {video_info.get('view_count', 0)} views | {video_info.get('platform', '')}"
     
     url = "https://api.notion.com/v1/pages"
     data = {
@@ -336,6 +352,11 @@ def main():
     
     for video in youtube_videos + bilibili_videos:
         video_id = video['id']
+        
+        # 过滤初级内容
+        if should_filter_video(video.get('title', '')):
+            log(f"  ⏭️ 过滤初级内容: {video['title'][:30]}...")
+            continue
         
         # 检查是否已处理
         if is_video_processed(video_id):
