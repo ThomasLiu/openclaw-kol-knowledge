@@ -20,6 +20,7 @@ DATA_DIR = os.path.join(GITHUB_DIR, "data")
 NOTION_KEY = "ntn_b7586668500EIA1TPn8XabewPj7LrwiUztjxXK3uPqU9xX"
 # 视频库 data_source_id
 NOTION_VIDEO_DS_ID = "3231c433-5fd4-807b-b134-000b244dd7c5"
+NOTION_API_VERSION = "2026-03-11"
 
 # 搜索关键词 - 更精准
 YOUTUBE_KEYWORDS = ["OpenClaw"]
@@ -282,14 +283,19 @@ def save_to_notion(video_info, transcript_data, analysis):
     import urllib.request
     import urllib.error
     
-    # 构建标题（包含关键信息）
-    title = f"{video_info.get('title', 'Untitled')[:60]} | {video_info.get('uploader', 'Unknown')} | {video_info.get('view_count', 0)} views | {video_info.get('platform', '')}"
+    # 构建标题
+    title = video_info.get('title', 'Untitled')[:80]
     
     url = "https://api.notion.com/v1/pages"
     data = {
         "parent": {"data_source_id": NOTION_VIDEO_DS_ID},
         "properties": {
-            "名称": {"title": [{"text": {"content": title}}]}
+            "名称": {"title": [{"text": {"content": title}}]},
+            "平台": {"select": {"name": video_info.get('platform', 'YouTube')}},
+            "播放量": {"number": video_info.get('view_count', 0)},
+            "链接": {"url": video_info.get('url', '')},
+            "频道": {"rich_text": [{"text": {"content": video_info.get('uploader', '')}}]},
+            "状态": {"select": {"name": "待处理"}}
         }
     }
     
@@ -298,7 +304,7 @@ def save_to_notion(video_info, transcript_data, analysis):
         data=json.dumps(data).encode('utf-8'),
         headers={
             'Authorization': f'Bearer {NOTION_KEY}',
-            'Notion-Version': '2025-09-03',
+            'Notion-Version': NOTION_API_VERSION,
             'Content-Type': 'application/json'
         }
     )
