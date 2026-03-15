@@ -117,42 +117,42 @@ def search_youtube_videos(keywords, limit=10):
     return unique_videos[:limit]
 
 def search_bilibili_videos(keywords, limit=10):
-    """搜索 Bilibili 视频"""
+    """搜索 Bilibili 视频 - 使用 API"""
     log("🔍 搜索 Bilibili...")
     videos = []
     
     for kw in keywords:
-        # 使用 yt-dlp 搜索 - Bilibili 搜索
-        cmd = f'yt-dlp --flat-playlist "ytsearch{limit}:site:bilibili.com {kw}" --dump-json'
-        output = run_cmd(cmd)
-        if not output:
-            continue
-            
-        for line in output.strip().split('\n'):
-            if not line.strip():
-                continue
-            try:
-                data = json.loads(line)
-                view_count = data.get('view_count', 0)
-                if view_count >= MIN_VIEWS:
-                    videos.append({
-                        'platform': 'bilibili',
-                        'id': get_video_id(data.get('webpage_url', '')),
-                        'title': data.get('title', ''),
-                        'uploader': data.get('uploader', ''),
-                        'view_count': view_count,
-                        'url': data.get('webpage_url', ''),
-                        'duration': data.get('duration', 0),
-                        'upload_date': data.get('upload_date', ''),
-                    })
-            except:
-                continue
+        import urllib.request
+        url = f"https://api.bilibili.com/x/web-interface/search/type?search_type=video&keyword={kw}&order=click&jsonp=jsonp"
+        
+        try:
+            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(req, timeout=10) as response:
+                data = json.loads(response.read().decode('utf-8'))
+                if data.get('code') == 0:
+                    for item in data.get('data', {}).get('result', [])[:limit*2]:
+                        title = item.get('title', '').replace('<em class="keyword">', '').replace('</em>', '')
+                        view_count = item.get('play', 0)
+                        
+                        if view_count >= MIN_VIEWS:
+                            videos.append({
+                                'platform': 'bilibili',
+                                'id': item.get('bvid', ''),
+                                'title': title,
+                                'uploader': item.get('author', ''),
+                                'view_count': view_count,
+                                'url': f"https://www.bilibili.com/video/{item.get('bvid', '')}",
+                                'duration': item.get('duration', 0),
+                                'upload_date': '',
+                            })
+        except Exception as e:
+            log(f"  ❌ Bilibili 搜索失败: {e}")
     
     # 去重并按播放量排序
     seen = set()
     unique_videos = []
     for v in videos:
-        if v['id'] not in seen:
+        if v['id'] and v['id'] not in seen:
             seen.add(v['id'])
             unique_videos.append(v)
     
