@@ -190,14 +190,34 @@ def is_video_processed(video_id):
             return True
     return False
 
+# 代理配置
+PROXY = "http://127.0.0.1:1087"
+
+# 下载视频音频
 def download_audio(video_info):
-    """下载视频音频 - 暂时跳过，等有代理再处理"""
+    """下载视频音频"""
     video_id = video_info['id']
     platform = video_info['platform']
     video_dir = os.path.join(DATA_DIR, platform, video_id)
     os.makedirs(video_dir, exist_ok=True)
     
-    log(f"  ⏭️ 跳过下载 (YouTube 被限制): {video_info['title'][:30]}...")
+    audio_path = os.path.join(video_dir, 'audio.mp3')
+    
+    if os.path.exists(audio_path):
+        log(f"  音频已存在: {video_id}")
+        return audio_path
+    
+    log(f"  📥 下载音频: {video_info['title'][:30]}...")
+    
+    if platform == 'youtube':
+        # YouTube: 使用 Chrome cookies
+        cmd = f'yt-dlp --cookies-from-browser chrome -f bestaudio --extract-audio --audio-format mp3 -o "{audio_path}" "{video_info["url"]}"'
+    else:
+        # B站: 使用代理
+        cmd = f'yt-dlp --proxy {PROXY} -f bestaudio --extract-audio --audio-format mp3 -o "{audio_path}" "{video_info["url"]}"'
+    
+    if run_cmd(cmd):
+        return audio_path
     return None
 
 def transcribe_audio(audio_path, language=None):
@@ -278,7 +298,7 @@ def save_to_notion(video_info, transcript_data, analysis):
     """保存到 Notion - KOL + 视频"""
     import urllib.request
     
-    # 保存视频（字段名用 Notion 返回的英文名）
+    # 保存视频
     url = "https://api.notion.com/v1/pages"
     data = {
         "parent": {"data_source_id": NOTION_VIDEO_DS_ID},
@@ -289,7 +309,8 @@ def save_to_notion(video_info, transcript_data, analysis):
             "播放量": {"number": video_info.get('view_count', 0)},
             "链接": {"url": video_info.get('url', '')},
             "状态": {"select": {"name": "待处理"}},
-            "收录日期": {"date": {"start": datetime.now().strftime('%Y-%m-%d')}}
+            "收录日期": {"date": {"start": datetime.now().strftime('%Y-%m-%d')}},
+            "更新时间": {"last_edited_time": datetime.now().isoformat()}
         }
     }
     
